@@ -1,0 +1,361 @@
+---
+title: "Working with Dates and Times"
+output: pdf_document
+---
+
+## Date and Time Information
+
+Working with dates and times is difficult because it lacks consistency:
+
+* multiple lengths of months
+* daylight savings time
+* time zones
+* leap years
+
+---
+
+## Avoiding Date and Time Structure
+
+One way to avoid dealing with dates and times is to convert them to another format. For example, we could convert absolute time to an integer value relative to an arbitrary starting point.
+
+For example, survival data can be converted to the number of days (or hours) relative to the start of the study.
+
+This can also serve to de-identify the data.
+
+---
+
+## `Date` Class
+
+The default data structure for dates in R is the `Date` class. Internally, `Date` stores time as an integer value, which represents the number of days since January 1, 1970 (note that this allows for negative values).
+
+```{r}
+as.Date("2012-09-30")
+class(Sys.Date())
+unclass(Sys.Date())
+as.Date("09/30/2012", format="%m/%d/%Y") # Custom formatting
+as.Date(41180, origin="1900-01-01") # Choose a different origin
+```
+
+`Date` objects can be subtracted from one another, or have their default units changed:
+
+```{r}
+Sys.Date() - as.Date("2003-05-17")
+difftime(Sys.Date(), as.Date("2003-05-17"), units="secs")
+```
+
+---
+
+## Date-Time Data
+
+For date-time information, there is a choice of several packages. Two standard build-in classes are the `POSIXct` and `POSIXlt` classes, which stand for calendar time and local time representations, respectively.
+
+* `POSIXct` stores time as the number of *seconds* since the origin
+* `POSIXlt` stores a list of time attributes, which can be indexed
+
+---
+
+```{r}
+unclass(Sys.time())
+unclass(as.POSIXlt(Sys.time()))
+```
+
+---
+
+## Date-Time Formatting
+
+We can obtain date-time data in a wide variety of formats. The POSIXt classes allow for broad customization of the input format.
+
+```{r}
+as.POSIXct("080406 10:11", format = "%y%m%d %H:%M")
+as.POSIXct("2008-04-06 10:11:01 PM", format = "%Y-%m-%d %I:%M:%S %p")
+as.POSIXct("08/04/06 22:11:00", format = "%m/%d/%y %H:%M:%S")
+```
+
+It is also possible to convert POSIXt variables to character strings of an arbitrary format:
+
+```{r}
+format(as.POSIXct("080406 10:11", format = "%y%m%d %H:%M"), "%m/%d/%Y %I:%M %p")
+as.character(as.POSIXct("080406 10:11", format = "%y%m%d %H:%M"), format = "%m-%d-%y %H:%M")
+```
+
+## Presenter Notes
+
+Note that 12-hour clock hours is denoted by %I
+
+---
+
+## Example
+
+The following function calculates the time at which you turn a given number of seconds old, defaulting to a billion:
+
+```{r}
+bday_in_secs <- function(bday, age = 10^9, format = "%Y-%m-%d %H:%M:%S") {
+    x <- as.POSIXct(bday, format = format) + age
+    togo <- round(difftime(x, Sys.time(), units = "days"))
+    if (togo > 0) {
+        msg <- sprintf("You will be %s seconds old on %s, which is %s days from now.",
+                       age, format(x, "%Y-%m-%d"), togo)
+    } else {
+        msg <- sprintf("You turned %s seconds old on %s, which was %s days ago.",
+                       age, format(x, "%Y-%m-%d"), -1 * togo)
+    }
+    if (age > 125 * 365.25 * 86400)
+        msg <- paste(msg, "Good luck with that.")
+    print(msg)
+    format(x, "%Y-%m-%d")
+}
+
+bday_in_secs("1985-09-25 14:00:00")
+```
+
+---
+
+## POSIXt Gotchas
+
+Sometimes R will change date-time classes on you without warning!
+
+```{r}
+dts <- data.frame(day = c("20081101", "20081101", "20081101", "20081101", "20081101",
+        "20081102", "20081102", "20081102", "20081102", "20081103"),
+    time = c("01:20:00", "06:00:00", "12:20:00", "17:30:00", "21:45:00", "01:15:00",
+        "06:30:00", "12:50:00", "20:00:00", "01:05:00"),
+    value = c(5, 5, 6, 6, 5, 5, 6, 7, 5, 5))
+dts1 <- paste(dts$day, dts$time)
+dts2 <- as.POSIXct(dts1, format = "%Y%m%d %H:%M:%S")
+dts3 <- as.POSIXlt(dts1, format = "%Y%m%d %H:%M:%S")
+dts_all <- data.frame(dts, ct = dts2, lt = dts3)
+str(dts_all)
+```
+
+---
+
+## POSIXt Gotchas
+
+However, if we build the same data frame using a different approach, it behaves as expected!
+
+```{r}
+dts_all <- dts
+dts_all$ct <- dts2
+dts_all$lt <- dts3
+str(dts_all)
+```
+
+---
+
+## POSIXt Gotchas
+
+Rounding date-times can also result in casting to a different type:
+
+```{r}
+dts_all[, "ct"] <- round(dts_all[, "ct"], units = "hours")
+class(dts_all[, "ct"])
+```
+
+We can force it back to POSIXct:
+
+```{r}
+dts_all[, "ct"] <- as.POSIXct(round(dts2, units = "hours"))
+```
+
+However, rounding a POSIXlt column also fails!
+
+```{r}
+dts_all[, "lt"] <- round(dts3, units = "hours")
+dts_all[, "lt"]
+```
+
+But magically, assigning with a `$` works as expected:
+
+```{r}
+dts_all$lt <- round(dts3, units = "hours")
+```
+
+---
+
+## Time Zones and DST
+
+```{r}
+(time1 <- dts_all$lt[5])
+(time2 <- dts_all$lt[7])
+while (time1 < time2) {
+  # Increment 1 hour until they are equal
+  time1$hour <- time1$hour + 1
+  print(unlist(time1))
+}
+```
+
+---
+
+## Time Zones and DST
+
+Notice, however, that the printed times are different, due to the fact that `time1` is on daylight savings time, while `time2` is on standard time. Yet, they are equal!
+
+```{r}
+print(sprintf("%s -- %s", time1, time2))
+time1 == time2
+time1
+time2
+```
+
+Converting the date classes clears up the problem, as does concatenating the dates:
+
+```{r}
+as.POSIXlt(as.POSIXct(time1))
+c(time1, time2)
+```
+
+---
+
+## Specifying Time Zones
+
+It is good practice to always declare your time zone:
+
+```{r}
+round(as.POSIXlt(dts1, format = "%Y%m%d %H:%M:%S", tz = "CST"), units = "hours")
+```
+
+If we want to ignore daylight savings and time zones, we can store date-time information in universal time (UTC):
+
+```{r}
+(dts4 <- round(as.POSIXlt(dts1, format = "%Y%m%d %H:%M:%S", tz = "UTC"), units = "hours"))
+```
+
+---
+
+## Example
+
+For a concrete example of manipulating dates and times, consider the task of filling (interpolating) missing dates and associated values in a sequence.
+
+Consider a simple data frame with values measured every 6 hours:
+
+```{r}
+mydata_lt <- data.frame(date = NA, value = dts_all$value)
+mydata_lt$date <- dts_all$lt
+mydata_lt
+```
+
+Let's say we actually want an entry every hour, with the value filled with the last observed value. *How would we do this?*
+
+---
+
+## Example
+
+First, create the vector of hourly date-times:
+
+```{r}
+dates <- seq(mydata_lt[1, "date"], mydata_lt[nrow(mydata_lt), "date"], by = "hours")
+```
+
+Now, we need a data frame of the appropriate size, with empty values:
+
+```{r}
+mydata_filled <- data.frame(date = dates, value = NA)
+```
+
+Next, match the dates in the new table with those of the original table, and copy the associated values:
+
+```{r}
+(mydata_filled$value[match(as.character(mydata_lt$date), as.character(mydata_filled$date))] <- mydata_lt$value)
+```
+
+---
+
+## Example
+
+Finally, we loop over the NA values in order, filling the value from the previous row:
+
+```{r}
+for (i in which(is.na(mydata_filled$value))) {
+    mydata_filled[i, "value"] <- mydata_filled[i - 1, "value"]
+}
+mydata_filled
+```
+
+---
+
+## Lubridate
+
+A more modern approach to handling dates and times is provided by the third-party package `lubridate`. It attempts to solve some of the inconsistencies and lack of robustness inherent in the built-in classes and associated functions.
+
+`lubridate` has a robust set of parsing functions that automatically handles a wide variety of string representations. For most formats, the parsing function name is the same as that of the order of the date elements:
+
+```{r}
+hasPackage <- tryCatch(find.package('lubridate'), error=function(e) e)
+if(inherits(hasPackage, "error")) install.packages('lubridate')
+library(lubridate)
+```
+
+```{r}
+ymd("20110604")
+mdy("06-04-2011")
+dmy("04/06/2011")
+```
+
+Data with time information as well as dates can similarly be accomodated:
+
+```{r}
+ymd_hms("2012-09-29 12:00:00", tz="America/Chicago")
+```
+
+---
+
+## Manipulating Dates and Times
+
+`lubridate` allows for the specification of particular durations or intervals that can then be added or subtracted from dates or times.
+
+```{r}
+(ldate <- mdy_hms("12/31/2012 23:59:59"))
+ldate + dseconds(1)
+month(ldate) <- 8
+ldate
+```
+
+It is easy to extract information from `lubridate`'s classes using the appropriate helper function:
+
+```{r}
+second(ldate)
+tz(ldate)
+yday(ldate)
+wday(ldate)
+wday(ldate, label=TRUE)
+```
+
+---
+
+## Periods vs Durations
+
+There are two time span classes, periods and durations:
+
+```{r}
+minutes(5)
+dminutes(5)
+```
+
+There are two classes because durations are always expected to be precise (measured exactly, to the second), while periods change according to a timeline:
+
+```{r}
+leap_year(2011)
+ymd(20110101) + dyears(1)
+ymd(20110101) + years(1)
+
+leap_year(2012)
+ymd(20120101) + dyears(1)
+ymd(20120101) + years(1)
+```
+
+---
+
+## Cool Date/Time Tricks
+
+`lubridate` makes it easy to generate dates at regular intervals:
+
+```{r}
+(meetings <- now() + weeks(0:5))
+```
+
+The custom operator `%within%` tests whether two intervals overlap:
+
+```{r}
+holiday <- interval(ymd("2012/10/11"), ymd("2012/10/17"))
+meetings %within% holiday
+```

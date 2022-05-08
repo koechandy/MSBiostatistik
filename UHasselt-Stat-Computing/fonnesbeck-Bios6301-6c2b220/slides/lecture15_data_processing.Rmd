@@ -1,0 +1,724 @@
+---
+title: "Data Processing in R"
+output: pdf_document
+---
+
+```{r, echo=FALSE, results='hide'}
+# increase number of characters to display
+options(width=80)
+```
+
+## Data Frames
+
+Data frames are the default data structure in R for manipulating large, multi-column, heterogeneous datasets.
+
+Recall that in data frames, data are organized into rows and columns, with rows
+representing individual observational units and columns representing the variables
+for each.
+
+There are several functions that are important for being able to use data frames effectively for processing your data.
+
+---
+
+## Sample Dataset: HAART
+
+Our sample database is some de-identified data for Highly Active Antiretroviral Therapy (HAART) patients. The data file, `haart.csv` is located in the `datasets` folder on the GitHub repository.
+
+Here is what are first 4 lines (header + 3 data rows) of the table:
+
+    "male","age","aids","cd4baseline","logvl","weight","hemoglobin","init.reg","init.date","last.visit","death","date.death","event","followup","lfup","pid"
+    1,25,0,NA,NA,NA,NA,"3TC,AZT,EFV","2003-07-01","2007-02-26",0,NA,0,365,0,1
+    1,49,0,143,NA,58.0608,11,"3TC,AZT,EFV","2004-11-23","2008-02-22",0,NA,0,365,0,2
+    1,42,1,102,NA,48.0816,1,"3TC,AZT,EFV","2003-04-30","2005-11-21",1,"2006-01-11",0,365,0,3
+
+Since this data is in csv format, it can be easily imported to R with `read.csv`:
+
+```{r}
+setwd(file.path('..','datasets'))
+haart <- read.csv("haart.csv")
+```
+
+---
+
+## HAART data frame
+
+You can examine the first few lines of a large data frame using the `head` function:
+
+```{r}
+head(haart)
+```
+
+Similarly, `tail` gives the last several lines of the data frame.
+
+---
+
+## Data Frame Structure
+
+The function `str` reveals the structure of the data frame, including the number of variables (columns) and observations (rows), as well as the data types of each column:
+
+```{r}
+str(haart)
+```
+
+Several columns were imported as a `Factor` type by default.
+
+---
+
+## Attaching Data Frames
+
+If you do not wish to prefix each variable by the name of the data frame, it is
+possible to `attach` the data frame to the current environment.
+
+```{r}
+attach(haart)
+weight[1:20]
+```
+
+This function should be used carefully: it is easy to cause namespace conflicts,
+that is, variables that already exist in one environment are silently overwritten
+by other variables that are attached.
+
+If you do choose to use `attach`, it is good practice to detach the workspace at
+the end of any script that attaches it:
+
+```{r}
+detach(haart)
+tryCatch(weight, error=function(e) e)
+```
+
+## Presenter Notes
+
+Note that the changing the variables that are attached to a particular
+environment does not change them in the original data frame
+
+---
+
+## Factors
+
+The `factor` type represents variables that are categorical, or nominal. That is, they are not ordinal or rational. We can think of factors as variables whose value is one of a set of labels, with no intrinsic label relative to the other labels. Examples include:
+
+* party membership: Republican, Democrat, Independent
+* zip code
+* gender
+* nationality
+
+For example, let's look at the `init.reg` variable in the HAART dataset, which shows the initial drug regimen for each patient:
+
+```{r}
+str(haart[,'init.reg'])
+```
+
+This shows each drug combination has a label and a unique number for each combination. These numbers, however, have no intrinsic order.
+
+---
+
+## Factors
+
+Levels may be defined that may not actually be present in the data. For example, let's generate some random data between 0 and 4, and turn it into a factor:
+
+```{r}
+(x <- factor(rbinom(20, 4, 0.5)))
+```
+
+We can redefine the levels to contain the value 5, even though it is not present:
+
+```{r}
+levels(x) <- 0:5
+table(x)
+```
+
+However, we cannot assign values to a factor variable that is not already among the levels:
+
+```{r}
+x[4] <- 17
+```
+
+---
+
+## Generating Factor Variables
+
+As an example, lets convert the `male` variable into a factor. By default, since it is an indicator variable that equals 1 for male patients and 0 for females, `read.table` assumes it is an integer-valued variable and imports it as such. But, there is no intrinsic ordering to gender, so it is more useful treating it as a factor.
+
+```{r}
+haart[,'gender'] <- factor(haart[,'male'])
+```
+
+We may also want to add readable labels to the levels, for use in output and plotting:
+
+```{r}
+levels(haart[,'gender']) <- c("female","male")
+```
+
+These steps can be combined into a single call:
+
+```{r}
+haart[,'gender'] <- factor(haart[,'male'], labels=c("female","male"))
+str(haart[,'gender'])
+```
+
+---
+
+## Indexing
+
+If you recall from the data structures lecture, we can *index* values from a data frame in a variety of ways. For example, if we want the ages of the first 50 observations:
+
+```{r}
+haart[1:20,'age']
+# or equivalently ...
+haart[[2]][1:20]
+```
+
+Multiple columns can be indexed using a vector of column names:
+
+```{r}
+x <- haart[,c("male", "age", "death")]
+head(x)
+# comma not required
+x1 <- haart[c("male", "age", "death")]
+identical(x, x1)
+```
+
+---
+
+## Indexing
+
+We can also extract particular rows according to the value of one or more variables. For example, if we are interested in the above columns for males:
+
+```{r}
+y <- x[x[,'male'] == 1,]
+head(y)
+```
+
+We could have combined the previous two operations into a single call that subsets
+the specified columns that correspond to male :
+
+```{r}
+y <- haart[haart[,'male'] == 1, c("male", "age", "death")]
+head(y)
+```
+
+---
+
+## Modifying and Creating Variables
+
+Suppose now we wish to create a derived variable, based on the values of one or more variables in the data frame. For example, we might want to refer to the number of days between the first visit (`init.date`) and the
+last (`last.visit`).
+
+Recall from the lecture on date-time variables that in order to efficiently calculate temporal variables, we need to convert the date fields from character strings to `POSIXct` or `POXIXlt` objects.
+
+```{r}
+haart[,'last.visit'] <- as.POSIXct(haart[,'last.visit'], format="%m/%d/%y")
+haart[,'init.date'] <- as.POSIXct(haart[,'init.date'], format="%m/%d/%y")
+haart[,'date.death'] <- as.POSIXct(haart[,'date.death'], format="%m/%d/%y")
+```
+
+Now we can subtract the later date from the earlier to get the time elapsed
+between visits:
+
+```{r}
+(haart[,'last.visit'] - haart[,'init.date'])[1:50]
+```
+
+---
+
+## Modifying and Creating Variables
+
+However, given the context of the data, we are probably interested in days elapsed between visits, rather than seconds.
+
+```{r}
+difftime(haart[,'last.visit'], haart[,'init.date'], units="days")[seq(20)]
+```
+
+Even easier, since we are only interested in days, is to convert the dates to `Date` objects, which ignores time information:
+
+```{r}
+(haart$time.diff <- as.Date(haart[,'last.visit']) - as.Date(haart[,'init.date']))[seq(20)]
+```
+
+---
+
+## Binning Data
+
+Another common operation is the creation of variable categories from raw
+values. The built-in function `cut` discretizes variables based on boundary values of the implied groups:
+
+```{r}
+haart[,'age_group'] <- cut(haart[,'age'], c(min(haart[,'age']), 30, 50, max(haart[,'age'])))
+```
+
+This creates a group for each group of ages in (18,30], (30, 50], and
+(50, 89]:
+
+```{r}
+table(haart[,'age_group'])
+```
+
+If we wanted to use less than (rather than less than or equal to), we
+could have specified `right=FALSE` to move the boundary values into the
+upper group:
+
+```{r}
+table(cut(haart[,'age'], c(min(haart[,'age']), 30, 50, max(haart[,'age'])), right=FALSE))
+```
+
+## Presenter Notes
+
+For example, perhaps we want to classify subjects into age
+groups, with those 30 or younger in the youngest group, those over 30
+but no older than 50 in the middle group, and those over 50 in the
+oldest group.
+
+---
+
+## Text Processing
+
+Often data will contain relevant information in the form of text that must be processed so that it can be used quantitatively, or appropriately displayed in a table or figure. Text is represented by the `character` type in R:
+
+```{r}
+word <- 'processing'
+class(word)
+```
+
+Even though R considers text to be a vector of characters, indexing and other functions do not work the same way with characters:
+
+```{r}
+word[1]
+length(word)
+```
+
+---
+
+## Text Processing
+
+R provides a separate set of functions to process text.
+
+```{r}
+nchar(word)
+substr(word, 1, 3)
+substr(word, 3, 5)
+```
+
+Not only can character strings be indexed, but they can be split up according to patterns in the text:
+
+```{r}
+sentence <- "R provides a separate set of functions to process text"
+(words <- strsplit(sentence, " "))
+```
+
+This is useful for analysis of text, where individual words need to be counted, compared or evaluated. Note that this operation is reversible!
+
+```{r}
+paste(unlist(words), collapse=" ")
+```
+
+---
+
+## Changing Case
+
+Character vectors can be changed to lower and upper case using the `tolower` and `toupper` functions:
+
+```{r}
+toupper(word)
+```
+
+Using these functions, you can create a custom function to convert to "title case":
+
+```{r}
+titlecase <- function(str) {
+    str <- tolower(str)
+    substr(str,1,1) <- toupper(substr(str,1,1))
+    str
+}
+
+titlecase(word)
+```
+
+The `chartr` function translates characters to their corresponding pair in a text string:
+
+```{r}
+(rna <- chartr('atcg', 'uagc', 'aagcgtctac'))
+```
+
+---
+
+## String Matching
+
+The function `charmatch` looks for unique matches for the elements of its first argument among those of its second.
+
+If there is a single exact match or no exact match and a unique partial match then
+the index of the matching value is returned; if multiple exact or multiple partial
+matches are found then ‘0’ is returned and if no match is found then NA is
+returned.
+
+```{r}
+words
+charmatch('fun', unlist(words))
+charmatch('foo', unlist(words))
+charmatch('pr', unlist(words))
+```
+
+---
+
+## Text Processing in Action
+
+In the HAART database, the field `init.reg` describes the initial drug regimens of each individual, and is imported to R by default as a `factor`.
+
+```{r}
+head(haart[,'init.reg'])
+table(haart[,'init.reg'])
+```
+
+However, each entry is in fact a list of drugs, and we may not want to analyze the data based on the unique combinations of drugs.
+
+---
+
+## Creating a List Variable
+
+One approach is to change the variable to a useful data structure like a list or a vector, which can be easily queried for individual drugs.
+
+First, we will convert the variable to a `character` type, and assign it to a temprorary variable:
+
+```{r}
+init.reg <- as.character(haart[,'init.reg'])
+```
+
+Now, we can use some of our text processing skill to extract the individual drug names:
+
+```{r}
+(haart[['init.reg_list2']] <- strsplit(init.reg, ","))[1:3]
+```
+
+In order to save a list variable into a data.frame, use must assign with `$<-` or `[[<-`.
+
+---
+
+## The `apply` Functions
+
+In some situations, users may want to apply functions to elements of a
+list or data frame. To facilitate this, there is a family of functions
+called `apply` functions that permit functions to be called on subsets
+of data without having to manually loop over elements in complex data
+structures.
+
+`tapply` applies a function to different subsets of the data, grouped
+according to factor variables. For example, suppose we wanted to know
+the mean weight of subjects by gender:
+
+```{r}
+tapply(haart[,'weight'], haart[,'male'], mean, na.rm=TRUE)
+```
+
+* first argument is the target vector to which the function will be
+applied
+* second argument is the index variable that dictates by what
+factor the application of the function will be grouped
+* third argument is the function that will be used
+* subsequent arguments are passed as arguments to the function referenced in the third argument, here `mean`
+
+---
+
+## Cross-tabulation with `tapply`
+
+Multiple factors can be passed to `tapply` simultaneously, resulting in
+cross-tabulated output:
+
+```{r}
+tapply(haart[,'weight'], haart[,c("male", "aids")], mean, na.rm=TRUE)
+```
+
+This can be further expanded to a 3-way cross-tabulation, if appropriate:
+
+```{r}
+tapply(haart[,'weight'], haart[,c("male", "aids", "death")], mean, na.rm=TRUE)
+```
+
+---
+
+## `lapply`
+
+The `lapply` function, after applying the specified function, attempts to coerce output into a list.
+
+For example, if we want to take the means of several quantitative variables:
+
+```{r}
+(haart_means <- lapply(haart[,4:6], mean, na.rm=TRUE))
+haart_means$weight
+```
+
+This allows the results to be indexed by name.
+
+---
+
+## `sapply`
+
+`sapply` tries to return a simpler data structure, generally a vector. For
+example, we may simply want to quickly query which of our variables are numeric:
+
+```{r}
+sapply(haart, is.numeric)
+```
+
+Or, perhaps we are interested in standardizing some of the variables in
+our data frame:
+
+```{r}
+sapply(haart[,c("cd4baseline", "weight", "hemoglobin")], scale)[1:5,]
+```
+
+---
+
+## `mclapply`
+
+An easy way to speed up apply functions is to take advantage of the fact that your machine will have multiple cores. **Parallel computing** is a general term that refers to the practice of breaking up tasks that are executed serially on a single CPU into multiple components, each of which is calculated simultaneously, by assigning them to multiple available CPUs. The degree to which this improves performance depends upon the nature of the task.
+
+The `parallel` package includes a function `mclapply` that is a multicore implementation of `lapply`. First, let's determine how many cores we have to work with:
+
+```{r}
+library(parallel)
+detectCores()
+```
+
+So I can employ a maximum of 4 cores. `mclapply` can be used exactly as `lapply` would be.
+
+```{r}
+haart_means <- mclapply(haart[,4:6], mean, na.rm=TRUE)
+```
+
+## Presenter Notes
+
+There are several packages available that implement parallel computing in R: `doMC`, `multicore`, `snow`
+
+---
+
+## `mclapply`
+
+There are some optional arguments for `mclapply` that can be used to tune its performance:
+
+`mc.preschedule`
+: if set to TRUE, computation is first divided to (at most) as many jobs are there are cores and then the jobs are started. If set to FALSE then one job is spawned for each value of X sequentially. The former is better for short computations or large number of values in X, the latter is better for jobs that have high variance of completion time and not too many values of X.
+
+`mc.cores`
+: The number of cores to use
+
+`mc.set.seed`
+: if set to TRUE then each parallel process first sets its seed to something different from other processes. Otherwise all processes start with the same (namely current) seed
+
+---
+
+## Querying List Variables
+
+Now, let's use one of these `apply` functions to query our variable containing the vectors of drugs. For example, we might want to know all the patients that have D4T
+as part of their regimens.
+
+```{r}
+d4t_index <- sapply(haart$init.reg_list, function(x) 'D4T' %in% x)
+haart_D4T <- haart[d4t_index, ]
+head(haart_D4T)
+```
+
+The `%in%` operator, returns `TRUE` if the value on the left hand side of the
+operator is contained in the vector on the right hand side, or `FALSE` otherwise.
+
+---
+
+## Creating Indicator Variables
+
+Another approach for transforming `init.reg` is to
+break it into multiple columns of indicators, which specify whether each
+drug is in that individual's regimen.
+
+The first lets create a unique list of all the drugs in all the regimens. Recall `unlist`, which takes all the list elements and concatenates them
+together. We can use this to get a non-unique vector of drugs:
+
+```{r}
+unlist(haart$init.reg_list)[seq(50)]
+```
+
+Now, we use the function `unique` to extract the unique items within
+this vector, which comprises a list of all the drugs:
+
+```{r}
+(all_drugs <- unique(unlist(haart$init.reg_list)))
+```
+
+---
+
+## Creating Indicator Variables
+
+Now that we have all the drugs, we want a logical vector for each drug
+that identifies its inclusion for each individual. We have already seen
+how to do this, for D4T:
+
+```{r}
+sapply(haart$init.reg_list, function(x) 'D4T' %in% x)[seq(50)]
+```
+
+Now we generalize this by writing a loop that performs this operation for each drug:
+
+```{r}
+for (drug in all_drugs) {
+    sapply(haart$init.reg_list, function(x) drug %in% x)
+}
+```
+
+## Presenter Notes
+
+Notice that when you run this function, nothing is returned. This is
+because we have not assigned the resulting vectors to variables, nor
+have we specified that they be printed to the screen.
+
+---
+
+## Creating Indicator Variables
+
+The strategy is to create an empty matrix, with rows equal to the number of rows in the data set and colums equal to the number of unique drugs:
+
+```{r}
+reg_drugs <- matrix(FALSE, nrow=nrow(haart), ncol=length(all_drugs))
+for(i in seq_along(all_drugs)) {
+  reg_drugs[,i] <- sapply(haart$init.reg_list, function(x) all_drugs[i] %in% x)
+}
+head(reg_drugs)
+```
+
+---
+
+## Creating Indicator Variables
+
+Turning this into a data frame is as simple as a call to `data.frame`,
+using `all_drugs` as a set of column labels:
+
+```{r}
+reg_drugs <- data.frame(reg_drugs)
+names(reg_drugs) <- all_drugs
+```
+
+Now use `cbind` to merge the indicator variables with the original data frame:
+
+```{r}
+haart_merged <- cbind(haart, reg_drugs)
+head(haart_merged)
+```
+
+---
+
+## Subsetting
+
+Though you can manually extract subsets of a particular data frame by manually
+indexing rows, the `subset` function is a more convenient method for extensive
+subsetting.
+
+For example, we may want to select the endpoint event, weight and hemoglobin for
+just the male subjects over 30 years old. This is straightforward:
+
+```{r}
+haart_m30 <- subset(haart, gender=="male" & age>30, select=c(death, weight, hemoglobin))
+head(haart_m30)
+```
+
+So, the first argument is the data frame of interest, the second argument are the
+subset conditions and the third is a vector of variables to be included in the
+resulting dataset.
+
+---
+
+## Missing Values
+
+Real-world data are rarely complete. Though analytic methods for dealing with missing values is outside the scope of this lecture, it is useful to know how to identify and remove records with missing values.
+
+`is.na` generates a logical vector indicating where missing values are present.
+We can use this logical vector to extract all observations for which weight is present:
+
+```{r}
+!is.na(haart[1:50,'weight'])
+head(haart[!is.na(haart[,'weight']),])
+```
+
+The convenience function `complete.cases` returns a logical vector identifying which rows have no missing values across the entire sequence.
+It too can be used to extract all observations with no missing values:
+
+```{r}
+complete.cases(haart[,1:12])[seq(50)]
+haart[complete.cases(haart[,1:12]),]
+```
+
+---
+
+## Sorting
+
+Though the `sort` function in R is the easiest way to sort the elements
+of a single vector, we are usually interested in sorting entire
+records/observations/rows according to the value of one or more
+parameters. In this case, it is a two-step process.
+
+First, we create a numeric vector of the indices of each row in our data
+frame, according to the order that we wish to have them.
+
+```{r}
+order(haart[,'init.date'], haart[,'last.visit'])[seq(50)]
+```
+
+The `order` function generates indices of every row in the HAART database, sorted first by `init.date` and then by `last.visit`.
+
+---
+
+## Sorting
+
+The second step is to use these index values to generate a sorted
+version of our data frame:
+
+```{r}
+haart_sorted <- haart[order(haart[,'init.date'], haart[,'last.visit']),]
+head(haart_sorted)
+```
+
+---
+
+## Merging Data Frames
+
+We have seen how to combine data frames using `cbind` to add additional columns to an existing data frame. Similarly, data frames can be combined by row using `rbind`:
+
+```{r}
+dim(rbind(haart[1:500,], haart[501:1000,]))
+```
+
+This works, provided that the number of columns match:
+
+```{r}
+tryCatch(dim(rbind(haart[1:500,], haart[501:1000,1:10])), error=function(e) e)
+```
+
+In some situations, we may have information in one table that *partially* matches information in a second table. What if we want to integrate this information into a single data frame?
+
+---
+
+## Merging Data Frames
+
+To combine data frames based on the values of common variables, we can use the built-in `merge` function. By default, `merge` joins rows of the data frames based on the values of the columns that the data frames have in common.
+
+Let's look at a trivial example of two data frames with partial overlap in information:
+
+```{r}
+df1 <- data.frame(a=c(1,2,4,5,6),x=c(9,12,14,21,8))
+df2 <- data.frame(a=c(1,3,4,6),y=c(8,14,19,2))
+merge(df1, df2)
+```
+
+Note that though there were 6 unique values for `a` among the two data frames, only those rows with values of `a` in both data frames are included in the merged data frame.
+
+---
+
+## Merging Data Frames
+
+If we want to include all observations from both data frames, we can set the appropriate flag, which will result in missing values:
+
+```{r}
+merge(df1, df2, all=TRUE)
+```
+
+Or we may wish to include all records from just one of the two tables:
+
+```{r}
+merge(df1, df2, all.x=TRUE)
+merge(df1, df2, all.y=TRUE)
+```
