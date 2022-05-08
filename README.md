@@ -1,3 +1,2 @@
-# README
-
-Hi there :wave ! This is a repository for my Master's modules
+# MSBiostatistik
+Hi there :wave:! Welcome to the repository for my Master's modules
