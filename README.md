@@ -1,3 +1,3 @@
 # README
 
-Hi there :wave ! This is a repository for my Master's modules
+Hi there :wave:! This is a repository for my Master's modules
